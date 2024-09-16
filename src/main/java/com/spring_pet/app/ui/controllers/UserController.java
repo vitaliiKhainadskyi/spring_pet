@@ -1,13 +1,14 @@
 package com.spring_pet.app.ui.controllers;
 
-import static org.apache.commons.lang3.StringUtils.isNotEmpty;
-
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
+import org.modelmapper.ModelMapper;
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -20,10 +21,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.spring_pet.app.shared.dto.UserDto;
 import com.spring_pet.app.ui.model.request.UpdateUserRequest;
 import com.spring_pet.app.ui.model.request.UserRequest;
 import com.spring_pet.app.ui.model.response.UserResponse;
-import com.spring_pet.app.userservice.CreateUserService;
+import com.spring_pet.app.userservice.UserService;
 
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
@@ -36,35 +38,53 @@ public class UserController {
     public static Map<String, UserResponse> usersMap = new HashMap<>();
 
     @Autowired
-    CreateUserService<UserResponse, UserRequest> userService;
+    UserService<UserDto> userService;
 
     @GetMapping()
     public ResponseEntity<Collection<UserResponse>> getUsers(
             @RequestParam(required = false, defaultValue = "1") int page,
-            @RequestParam(required = false, defaultValue = "50") int limit,
+            @RequestParam(required = false, defaultValue = "5") int limit,
             @RequestParam(required = false, defaultValue = "desc") String sort
 
     ) {
-        return ResponseEntity.ok(usersMap.values());
+        List<UserResponse> returnValue = new ArrayList<>();
+
+        List<UserDto> users = userService.getUsers(page, limit);
+
+        for (UserDto userDto : users) {
+            UserResponse userModel = new UserResponse();
+            BeanUtils.copyProperties(userDto, userModel);
+            returnValue.add(userModel);
+        }
+
+        return ResponseEntity.ok(returnValue);
     }
 
-    // current version doesnt require this produces, xml returns without it
     @GetMapping(path = "/{userId}", produces = { MediaType.APPLICATION_JSON_VALUE, MediaType.APPLICATION_XML_VALUE })
     public ResponseEntity<UserResponse> getUser(@PathVariable String userId) {
+        UserResponse returnValue = new UserResponse();
 
-        if (isUserByIdPresentInMap(userId)) {
-            return ResponseEntity.ok(usersMap.get(userId));
-        } else {
-            return new ResponseEntity<>(HttpStatus.OK);
-        }
+        UserDto userDto = userService.getUserByUserId(userId);
+        ModelMapper modelMapper = new ModelMapper();
+        returnValue = modelMapper.map(userDto, UserResponse.class);
+
+        return ResponseEntity.ok(returnValue);
     }
 
     @PostMapping(consumes = { MediaType.APPLICATION_JSON_VALUE, MediaType.APPLICATION_XML_VALUE }, produces = {
             MediaType.APPLICATION_JSON_VALUE, MediaType.APPLICATION_XML_VALUE })
     public ResponseEntity<Object> createUser(@Valid @RequestBody UserRequest userData) {
 
-        return ResponseEntity.ok(userService.createUser(userData));
+        UserResponse returnObj = new UserResponse();
 
+        UserDto userDto = new UserDto();
+        BeanUtils.copyProperties(userData, userDto);
+
+        UserDto createdUser = userService.createUser(userDto);
+
+        BeanUtils.copyProperties(createdUser, returnObj);
+
+        return ResponseEntity.ok(returnObj);
     }
 
     @PatchMapping(path = "/{userId}", consumes = { MediaType.APPLICATION_JSON_VALUE,
@@ -72,36 +92,21 @@ public class UserController {
                     MediaType.APPLICATION_JSON_VALUE, MediaType.APPLICATION_XML_VALUE })
     public ResponseEntity<Object> updateUser(@PathVariable String userId,
             @Valid @RequestBody UpdateUserRequest userData) {
-        if (!isUserByIdPresentInMap(userId)) {
-            return new ResponseEntity<>(String.format("User by the id %s not exists", userId),
-                    HttpStatus.BAD_REQUEST);
-        } else {
-            UserResponse user = usersMap.get(userId);
-            user.setFirstName(isNotEmpty(userData.getFirstName()) ? userData.getFirstName() : user.getFirstName());
-            user.setLastName(isNotEmpty(userData.getLastName()) ? userData.getLastName() : user.getLastName());
+        UserResponse returnValue = new UserResponse();
 
-            // user = user.toBuilder().firstName(
-            // StringUtils.isNotEmpty(userData.getFirstName()) ? userData.getFirstName() :
-            // user.getFirstName())
-            // .lastName(
-            // StringUtils.isNotEmpty(userData.getLastName()) ? userData.getLastName()
-            // : user.getLastName())
-            // .build();
+        UserDto userDto = new UserDto();
+        userDto = new ModelMapper().map(userData, UserDto.class);
 
-            // usersMap.replace(userId, user);
+        UserDto updateUser = userService.updateUser(userId, userDto);
+        returnValue = new ModelMapper().map(updateUser, UserResponse.class);
 
-            return ResponseEntity.ok(user);
-        }
+        return ResponseEntity.ok(returnValue);
     }
 
     @DeleteMapping(path = "/{userId}")
     public ResponseEntity<Void> deleteUser(@PathVariable String userId) {
-        usersMap.remove(userId);
+        userService.deleteUser(userId);
 
         return ResponseEntity.noContent().build();
-    }
-
-    private boolean isUserByIdPresentInMap(String userId) {
-        return usersMap.containsKey(userId);
     }
 }
